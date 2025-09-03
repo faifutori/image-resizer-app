@@ -1,5 +1,5 @@
 import streamlit as st
-from PIL import Image, ImageOps # ImageOpsをインポート
+from PIL import Image, ImageOps
 from io import BytesIO
 import datetime
 
@@ -33,13 +33,13 @@ PROGRAM_SPECS = {
 }
 
 
-# --- ★★★ 画像処理関数（修正箇所） ★★★ ---
+# --- 画像処理関数 ---
+# (このセクションは変更ありません)
 def resize_and_crop(image: Image.Image, target_size: tuple[int, int], position: str) -> Image.Image:
     """
     画像をアスペクト比を維持してリサイズし、指定サイズになるようにクロップする関数。
     元画像が指定サイズより小さい場合も、拡大して余白なしでフィットさせます。
     """
-    # ポジションの指定をImageOps.fitで使うための値（(x, y)の中心位置）に変換
     position_map = {
         '中央': (0.5, 0.5),
         '左上': (0.0, 0.0),
@@ -47,11 +47,8 @@ def resize_and_crop(image: Image.Image, target_size: tuple[int, int], position: 
         '左下': (0.0, 1.0),
         '右下': (1.0, 1.0),
     }
-    centering = position_map.get(position, (0.5, 0.5)) # デフォルトは中央
-
-    # ImageOps.fitを使用して、リサイズとクロップを同時に実行
-    # この関数は元画像を拡大または縮小し、target_sizeを完全に覆うようにしてから、
-    # centeringで指定された位置を基準にクロップします。
+    centering = position_map.get(position, (0.5, 0.5))
+    
     processed_image = ImageOps.fit(image, target_size, Image.Resampling.LANCZOS, centering=centering)
     
     return processed_image
@@ -99,7 +96,7 @@ with col1:
         st.header("2. 出力設定")
         
         position = st.selectbox(
-            '画像の位置を選択してください (クロップの基準点になります)', # 説明を少し変更
+            '画像の位置を選択してください (クロップの基準点になります)',
             ['中央', '左上', '右上', '左下', '右下']
         )
 
@@ -120,9 +117,22 @@ with col1:
             if '{last_name}' in spec['name_format'] and not last_name:
                 st.error('ゲストの苗字を入力してください。')
             else:
-                original_image = Image.open(uploaded_file).convert("RGB") # JPG保存のためにRGBに変換
+                original_image = Image.open(uploaded_file)
                 
-                # --- ★★★ メイン処理（呼び出す関数を変更） ★★★ ---
+                # --- ★★★ ここからが修正箇所 ★★★ ---
+                # PNGの透過情報(RGBA)をJPGに変換すると背景が黒くなる問題に対応
+                if original_image.mode == 'RGBA':
+                    # 白い背景の画像を作成
+                    background = Image.new('RGB', original_image.size, (255, 255, 255))
+                    # 元の画像を、そのアルファチャンネルをマスクとして背景に貼り付け
+                    background.paste(original_image, (0, 0), original_image)
+                    original_image = background # 処理対象の画像を、背景と合成したものに置き換える
+                
+                # 念のためRGBモードに変換（JPGで保存するため）
+                original_image = original_image.convert('RGB')
+                # --- ★★★ ここまでが修正箇所 ★★★ ---
+
+                # --- メイン処理 ---
                 processed_image = resize_and_crop(original_image, spec['size'], position)
 
                 base_filename = spec['name_format'].format(**params)
@@ -131,6 +141,7 @@ with col1:
                 if output_format == 'JPG':
                     final_filename = f"{base_filename}.jpg"
                     mime_type = "image/jpeg"
+                    # processed_imageはすでにRGBなのでそのまま保存
                     processed_image.save(buffer, format='JPEG', quality=quality, optimize=True)
                 else:
                     final_filename = f"{base_filename}.png"
