@@ -1,10 +1,10 @@
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps # ImageOpsをインポート
 from io import BytesIO
 import datetime
 
 # --- 番組ごとの設定 ---
-# ファイル名の拡張子(.jpg)を削除し、選択された形式に応じて動的に付与するように変更
+# (このセクションは変更ありません)
 PROGRAM_SPECS = {
     'ドローン紀行': {
         'size': (1200, 680),
@@ -32,41 +32,30 @@ PROGRAM_SPECS = {
     }
 }
 
-# --- 画像処理関数 ---
-def resize_and_pad(image: Image.Image, target_size: tuple[int, int], position: str) -> Image.Image:
-    """
-    画像をアスペクト比を維持してリサイズし、指定サイズに合わせて白枠を追加（パディング）する関数
-    """
-    img_copy = image.copy()
-    img_copy.thumbnail(target_size, Image.Resampling.LANCZOS)
-    
-    # PNGの透過チャンネルを考慮し、背景を白色に設定
-    background = Image.new('RGB', target_size, (255, 255, 255))
-    
-    target_w, target_h = target_size
-    img_w, img_h = img_copy.size
-    
-    if position == '中央':
-        paste_pos = ((target_w - img_w) // 2, (target_h - img_h) // 2)
-    elif position == '左上':
-        paste_pos = (0, 0)
-    elif position == '右上':
-        paste_pos = (target_w - img_w, 0)
-    elif position == '左下':
-        paste_pos = (0, target_h - img_h)
-    elif position == '右下':
-        paste_pos = (target_w - img_w, target_h - img_h)
-    else:
-        paste_pos = ((target_w - img_w) // 2, (target_h - img_h) // 2)
 
-    # 元画像が透過情報(RGBA)を持つ場合、そのまま貼り付けるとエラーになることがあるため、
-    # マスクとしてアルファチャンネルを指定して貼り付け
-    if img_copy.mode == 'RGBA':
-        background.paste(img_copy, paste_pos, img_copy)
-    else:
-        background.paste(img_copy, paste_pos)
+# --- ★★★ 画像処理関数（修正箇所） ★★★ ---
+def resize_and_crop(image: Image.Image, target_size: tuple[int, int], position: str) -> Image.Image:
+    """
+    画像をアスペクト比を維持してリサイズし、指定サイズになるようにクロップする関数。
+    元画像が指定サイズより小さい場合も、拡大して余白なしでフィットさせます。
+    """
+    # ポジションの指定をImageOps.fitで使うための値（(x, y)の中心位置）に変換
+    position_map = {
+        '中央': (0.5, 0.5),
+        '左上': (0.0, 0.0),
+        '右上': (1.0, 0.0),
+        '左下': (0.0, 1.0),
+        '右下': (1.0, 1.0),
+    }
+    centering = position_map.get(position, (0.5, 0.5)) # デフォルトは中央
+
+    # ImageOps.fitを使用して、リサイズとクロップを同時に実行
+    # この関数は元画像を拡大または縮小し、target_sizeを完全に覆うようにしてから、
+    # centeringで指定された位置を基準にクロップします。
+    processed_image = ImageOps.fit(image, target_size, Image.Resampling.LANCZOS, centering=centering)
     
-    return background
+    return processed_image
+
 
 # --- Streamlit UI部分 ---
 st.set_page_config(page_title="番組用画像リサイズ", layout="wide")
@@ -110,7 +99,7 @@ with col1:
         st.header("2. 出力設定")
         
         position = st.selectbox(
-            '画像の位置を選択してください',
+            '画像の位置を選択してください (クロップの基準点になります)', # 説明を少し変更
             ['中央', '左上', '右上', '左下', '右下']
         )
 
@@ -120,22 +109,21 @@ with col1:
             horizontal=True
         )
 
-        # JPG選択時のみ品質スライダーを表示
         if output_format == 'JPG':
             quality = st.slider('JPG圧縮品質', 1, 100, 85)
             st.info("品質の値を下げるとファイルサイズは小さくなりますが、画質も低下します。\n100KB前後を目安に調整してください。")
         else:
-            quality = None # PNGの場合は使用しない
+            quality = None
             st.info("PNGは画質が劣化しない形式です。一般的にファイルサイズはJPGより大きくなります。")
         
         if st.button('画像をリサイズする', type="primary"):
             if '{last_name}' in spec['name_format'] and not last_name:
                 st.error('ゲストの苗字を入力してください。')
             else:
-                original_image = Image.open(uploaded_file)
+                original_image = Image.open(uploaded_file).convert("RGB") # JPG保存のためにRGBに変換
                 
-                # --- メイン処理 ---
-                processed_image = resize_and_pad(original_image, spec['size'], position)
+                # --- ★★★ メイン処理（呼び出す関数を変更） ★★★ ---
+                processed_image = resize_and_crop(original_image, spec['size'], position)
 
                 base_filename = spec['name_format'].format(**params)
                 
@@ -144,22 +132,20 @@ with col1:
                     final_filename = f"{base_filename}.jpg"
                     mime_type = "image/jpeg"
                     processed_image.save(buffer, format='JPEG', quality=quality, optimize=True)
-                else: # PNG
+                else:
                     final_filename = f"{base_filename}.png"
                     mime_type = "image/png"
                     processed_image.save(buffer, format='PNG', optimize=True)
                 
                 image_bytes = buffer.getvalue()
                 
-                # --- 処理結果を右カラムに表示 ---
                 with col2:
                     st.header("処理結果")
-                    # カスタムCSSを適用するためのHTML要素を挿入
                     st.markdown("""
                     <style>
                         .image-container-with-border img {
-                            border: 2px solid #ccc; /* 枠線の太さ、種類、色を調整 */
-                            border-radius: 4px; /* 角を少し丸める（任意） */
+                            border: 2px solid #ccc;
+                            border-radius: 4px;
                         }
                     </style>
                     <div class="image-container-with-border">
@@ -170,7 +156,6 @@ with col1:
                         caption=f'プレビュー: {spec["size"][0]}x{spec["size"][1]}px'
                     )
 
-                    # divタグを閉じる
                     st.markdown("</div>", unsafe_allow_html=True)
                     st.info(f"ファイル名: **{final_filename}**")
                     st.info(f"ファイルサイズ: **{len(image_bytes) / 1024:.1f} KB**")
@@ -181,3 +166,5 @@ with col1:
                         file_name=final_filename,
                         mime=mime_type
                     )
+
+# streamlit run app.py
