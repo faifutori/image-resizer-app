@@ -21,6 +21,10 @@ PROGRAM_SPECS = {
         'size': (600, 600),
         'name_format': 'guest-{last_name}'
     },
+'SDGs': {
+        'size': (1280, 720),
+        'name_format': 'sdgs_{date}'
+    },
     '快適ドキドキライフ': {
         'size': (1000, 560),
         'name_format': 'item{date}-{count}'
@@ -167,7 +171,7 @@ with col1:
         params['date'] = '' 
 
     if '{last_name}' in spec['name_format']:
-        last_name = st.text_input('ゲストの苗字（ローマ字）を入力してください 例: Suzuki', key='last_name_input')
+        last_name = st.text_input('ゲストの苗字（ローマ字）を入力してください', key='last_name_input')
         params['last_name'] = last_name
     else:
         params['last_name'] = ''
@@ -177,6 +181,7 @@ with col1:
         params['count'] = str(count)
     else:
         params['count'] = ''
+        
 
     st.header("2. 出力設定")
     
