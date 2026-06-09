@@ -21,13 +21,17 @@ PROGRAM_SPECS = {
         'size': (600, 600),
         'name_format': 'guest-{last_name}'
     },
-'SDGs': {
+    'SDGs': {
         'size': (1280, 720),
         'name_format': 'sdgs_{date}'
     },
     '快適ドキドキライフ': {
         'size': (1000, 560),
         'name_format': 'item{date}-{count}'
+    },
+    '北ビジ': {
+        'size': (800, 400),
+        'name_format': '{date}'
     }
 }
 
@@ -40,37 +44,25 @@ def resize_and_crop(image: Image.Image, target_size: tuple[int, int], position: 
     元画像が指定サイズより小さい場合も、拡大して余白なしでフィットさせます。
     オフセット値を使って、クロップ位置をピクセル単位で微調整できます。
     """
-    # まずは元のアスペクト比を保ちつつ、ターゲットサイズを埋めるようにリサイズ
-    # ImageOps.contain と似ているが、ImageOps.fit は余白を埋めるように拡大/縮小し、
-    # その後ターゲットサイズになるようにクロップする。
-    # ここでは、ImageOps.fitが内部で実行するリサイズ・クロップ処理を模倣して、
-    # オフセットを適用できるようにする。
-
     img_width, img_height = image.size
     target_width, target_height = target_size
 
-    # ターゲットアスペクト比と画像のアスペクト比を比較
     target_aspect = target_width / target_height
     image_aspect = img_width / img_height
 
     if image_aspect > target_aspect:
-        # 画像がターゲットよりも横長の場合、高さを基準にリサイズ
         scale = target_height / img_height
         resize_width = int(img_width * scale)
         resize_height = target_height
     else:
-        # 画像がターゲットよりも縦長または同じアスペクト比の場合、幅を基準にリサイズ
         scale = target_width / img_width
         resize_width = target_width
         resize_height = int(img_height * scale)
     
-    # LANCZOSフィルタでリサイズ
     resized_image = image.resize((resize_width, resize_height), Image.Resampling.LANCZOS)
 
-    # クロップ範囲の計算
     left, top, right, bottom = 0, 0, target_width, target_height
 
-    # 基準位置の計算 (0.0～1.0の正規化座標)
     position_map = {
         '中央': (0.5, 0.5),
         '左上': (0.0, 0.0),
@@ -80,29 +72,23 @@ def resize_and_crop(image: Image.Image, target_size: tuple[int, int], position: 
     }
     base_centering_x, base_centering_y = position_map.get(position, (0.5, 0.5))
 
-    # クロップ領域の左上座標を計算
-    # リサイズ後の画像からのクロップ開始点
     crop_x_start = int((resize_width - target_width) * base_centering_x)
     crop_y_start = int((resize_height - target_height) * base_centering_y)
 
-    # オフセットを適用
-    crop_x_start -= offset_x # 正のXオフセットは画像を左に動かす (=クロップ領域を右に動かす)
-    crop_y_start -= offset_y # 正のYオフセットは画像を上に動かす (=クロップ領域を下に動かす)
+    crop_x_start -= offset_x
+    crop_y_start -= offset_y
 
-    # クロップ領域が画像からはみ出さないように調整
     crop_x_start = max(0, min(crop_x_start, resize_width - target_width))
     crop_y_start = max(0, min(crop_y_start, resize_height - target_height))
 
     crop_box = (crop_x_start, crop_y_start, crop_x_start + target_width, crop_y_start + target_height)
 
-    # 実際にクロップ
     processed_image = resized_image.crop(crop_box)
     
     return processed_image
 
 
 # --- メインの画像処理ロジックを関数化 ---
-# オフセット引数を追加
 def process_image(uploaded_file, program_name, params, position, offset_x, offset_y, output_format, quality):
     if uploaded_file is None:
         return None, None, None, None
@@ -117,7 +103,6 @@ def process_image(uploaded_file, program_name, params, position, offset_x, offse
     
     original_image = original_image.convert('RGB')
 
-    # オフセット引数を渡す
     processed_image = resize_and_crop(original_image, spec['size'], position, offset_x, offset_y)
     
     base_filename = spec['name_format'].format(**params)
@@ -191,14 +176,13 @@ with col1:
         key='position_select'
     )
 
-    # オフセット（微調整）入力部分を追加
     st.subheader('位置の微調整（ピクセル単位）')
     col_offset1, col_offset2 = st.columns(2)
     with col_offset1:
         offset_x = st.number_input(
             '左右オフセット (X軸)',
-            min_value=-500, # 必要に応じて範囲調整
-            max_value=500,  # 必要に応じて範囲調整
+            min_value=-500,
+            max_value=500,
             value=0,
             step=1,
             help='正の値で画像を左へ、負の値で画像を右へ動かします。',
@@ -207,8 +191,8 @@ with col1:
     with col_offset2:
         offset_y = st.number_input(
             '上下オフセット (Y軸)',
-            min_value=-500, # 必要に応じて範囲調整
-            max_value=500,  # 必要に応じて範囲調整
+            min_value=-500,
+            max_value=500,
             value=0,
             step=1,
             help='正の値で画像を上へ、負の値で画像を下へ動かします。',
@@ -238,7 +222,6 @@ with col1:
         st.error('ゲストの苗字を入力してください。')
 
     if uploaded_file and not last_name_is_empty:
-        # オフセット引数を渡す
         processed_image, final_filename, mime_type, image_bytes = \
             process_image(uploaded_file, program_name, params, position, offset_x, offset_y, output_format, quality)
         
